@@ -94,6 +94,24 @@ const splitRows = rows.map((row) => [
   row[9],
 ]);
 
+const bigRows = Array.from({ length: 1005 }, (_, index) => {
+  const base = rows[index % rows.length];
+  const seq = String(index + 1).padStart(4, "0");
+  return [
+    `BIG-${seq}`,
+    `${base[1]}-${seq}`,
+    base[2],
+    `${base[3]}-${seq}`,
+    `${base[4]}-${seq}`,
+    base[5],
+    `${base[6]}-${seq}`,
+    base[7],
+    base[8],
+    base[9],
+    `大文件第 ${seq} 行`,
+  ];
+});
+
 writeBook("case5-multisheet-split-address-missing-optional.xlsx", [
   {
     name: "填写说明",
@@ -108,6 +126,27 @@ writeBook("case5-multisheet-split-address-missing-optional.xlsx", [
     data: [
       ["寄件人", "寄件电话", "寄件省", "寄件市", "寄件区", "寄件详细地址", "收方", "收件电话", "收件省", "收件市", "收件区", "收件详细地址", "重量(KG)", "包裹数量", "温层"],
       ...splitRows,
+    ],
+  },
+]);
+
+writeBook("case6-large-1005-rows.xlsx", [
+  {
+    name: "大批量订单",
+    data: [
+      ["外部编码", "发件人姓名", "发件人电话", "发件人地址", "收件人姓名", "收件人电话", "收件人地址", "重量(kg)", "件数", "温层", "备注"],
+      ...bigRows,
+    ],
+  },
+]);
+
+writeBook("case7-similar-memory-template.xlsx", [
+  {
+    name: "相似模板",
+    data: [
+      ["导入批次：模板记忆相似结构验证"],
+      ["外部编码", "发件人姓名", "发件人电话", "发件人地址", "收件人姓名", "收件人电话", "收件人地址", "重量(kg)", "件数", "温层", "客户备注"],
+      ...rows.map((row) => row),
     ],
   },
 ]);

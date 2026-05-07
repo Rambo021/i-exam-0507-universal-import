@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChangeEvent, DragEvent, KeyboardEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -38,6 +38,7 @@ function progressPercent(progress: ProgressState | null) {
 
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
   const [mapping, setMapping] = useState<ColumnMapping>({});
@@ -56,6 +57,14 @@ export default function Home() {
     });
     return map;
   }, [errors]);
+
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, []);
 
   async function handleFile(file?: File) {
     if (!file) return;
@@ -120,22 +129,41 @@ export default function Home() {
     setMapping(next);
     if (parseResult) {
       setRows(remapRows(parseResult.sourceRows, next));
+      schedulePersistMapping(next);
     }
   }
 
-  async function persistMapping() {
-    if (!parseResult) return;
-    const draft: MappingDraft = {
+  function buildMappingDraft(nextMapping: ColumnMapping): MappingDraft | null {
+    if (!parseResult) return null;
+    return {
       sheetName: parseResult.sheetName,
       headerRowIndex: parseResult.headerRowIndex,
       headers: parseResult.headers,
       fingerprint: parseResult.fingerprint,
-      mapping,
+      mapping: nextMapping,
       fromMemory: true,
       confidence: 1,
     };
+  }
+
+  function schedulePersistMapping(nextMapping: ColumnMapping) {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    autoSaveTimerRef.current = setTimeout(() => {
+      void persistMapping(nextMapping, true);
+    }, 400);
+  }
+
+  async function persistMapping(nextMapping: ColumnMapping = mapping, autoSaved = false) {
+    const draft = buildMappingDraft(nextMapping);
+    if (!draft) return;
     saveMapping(draft);
-    setMessage("模板映射已保存。下次上传相同或相似结构会自动应用。");
+    setMessage(
+      autoSaved
+        ? "模板映射已自动保存。下次上传相同或相似结构会自动应用。"
+        : "模板映射已保存。下次上传相同或相似结构会自动应用。",
+    );
     await fetch("/api/templates", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -278,7 +306,7 @@ export default function Home() {
               </div>
               <button
                 type="button"
-                onClick={persistMapping}
+                onClick={() => void persistMapping()}
                 className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50"
               >
                 <Save size={15} />
