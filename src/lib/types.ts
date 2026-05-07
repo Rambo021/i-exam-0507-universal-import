@@ -25,7 +25,7 @@ export type FieldConfig = {
   width: string;
 };
 
-export type ColumnMapping = Partial<Record<OrderField, number>>;
+export type ColumnMapping = Partial<Record<OrderField, number | number[]>>;
 
 export type MappingDraft = {
   sheetName: string;

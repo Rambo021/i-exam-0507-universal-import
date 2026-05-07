@@ -61,6 +61,15 @@ function inferMapping(headers: unknown[]): ColumnMapping {
     }
   }
 
+  const senderAddressParts = findAddressParts(headers, "sender");
+  const receiverAddressParts = findAddressParts(headers, "receiver");
+  if (mapping.senderAddress === undefined && senderAddressParts.length >= 2) {
+    mapping.senderAddress = senderAddressParts;
+  }
+  if (mapping.receiverAddress === undefined && receiverAddressParts.length >= 2) {
+    mapping.receiverAddress = receiverAddressParts;
+  }
+
   return mapping;
 }
 
@@ -157,12 +166,39 @@ function emptyRow(): OrderRow {
   return Object.fromEntries(orderFields.map((field) => [field, ""])) as OrderRow;
 }
 
+function findAddressParts(headers: unknown[], side: "sender" | "receiver") {
+  const sideWords =
+    side === "sender"
+      ? ["发件", "发货", "寄件", "寄方", "sender"]
+      : ["收件", "收货", "收方", "receiver", "recipient"];
+  const partWords = ["省", "市", "区", "县", "详细地址", "地址明细", "address"];
+
+  return headers
+    .map((header, index) => ({ header: String(header ?? ""), normalized: normalizeHeader(header), index }))
+    .filter(({ header, normalized }) => {
+      const hasSide = sideWords.some((word) => normalized.includes(normalizeHeader(word)) || header.includes(word));
+      const hasPart = partWords.some((word) => normalized.includes(normalizeHeader(word)) || header.includes(word));
+      return hasSide && hasPart;
+    })
+    .map((item) => item.index);
+}
+
+function readMappedCell(row: unknown[], index: number | number[] | undefined) {
+  if (index === undefined) return "";
+  if (Array.isArray(index)) {
+    return index
+      .map((item) => String(row[item] ?? "").trim())
+      .filter(Boolean)
+      .join("");
+  }
+  return String(row[index] ?? "").trim();
+}
+
 function rowToOrder(row: unknown[], mapping: ColumnMapping): OrderRow {
   const order = emptyRow();
   order.id = nanoid(8);
   for (const field of orderFields) {
-    const index = mapping[field];
-    order[field] = index === undefined ? "" : String(row[index] ?? "").trim();
+    order[field] = readMappedCell(row, mapping[field]);
   }
   return order;
 }

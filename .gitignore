@@ -46,3 +46,6 @@ dev-server.*.log
 
 .vercel
 .env*.local
+
+# generated local import samples
+/test-excels/

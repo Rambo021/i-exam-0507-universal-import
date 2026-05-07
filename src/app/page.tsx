@@ -110,6 +110,7 @@ export default function Home() {
   }
 
   function changeMapping(field: OrderField, value: string) {
+    if (value === "__auto__") return;
     const next = { ...mapping };
     if (value === "") {
       delete next[field];
@@ -292,11 +293,20 @@ export default function Home() {
                     {field.required ? <span className="text-red-600"> *</span> : null}
                   </span>
                   <select
-                    value={mapping[field.key] ?? ""}
+                    value={
+                      Array.isArray(mapping[field.key])
+                        ? "__auto__"
+                        : typeof mapping[field.key] === "number"
+                          ? String(mapping[field.key])
+                          : ""
+                    }
                     onChange={(event) => changeMapping(field.key, event.target.value)}
                     className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm"
                   >
                     <option value="">不映射</option>
+                    {Array.isArray(mapping[field.key]) ? (
+                      <option value="__auto__">自动组合拆分地址列</option>
+                    ) : null}
                     {parseResult.headers.map((header, index) => (
                       <option key={`${header}-${index}`} value={index}>
                         {index + 1}. {header || "空列"}
