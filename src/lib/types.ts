@@ -1,83 +1,92 @@
-export const orderFields = [
+export const shipmentFields = [
   "externalCode",
-  "senderName",
-  "senderPhone",
-  "senderAddress",
+  "storeName",
   "receiverName",
   "receiverPhone",
   "receiverAddress",
-  "weight",
+  "skuCode",
+  "skuName",
   "quantity",
-  "temperatureZone",
+  "spec",
   "remark",
 ] as const;
 
-export type OrderField = (typeof orderFields)[number];
+export type ShipmentField = (typeof shipmentFields)[number];
 
-export type OrderRow = Record<OrderField, string> & {
+export type ShipmentRow = Record<ShipmentField, string> & {
   id: string;
+  orderKey?: string;
+  source?: {
+    sheetName?: string;
+    rowIndex?: number;
+    blockIndex?: number;
+    page?: number;
+  };
+};
+
+export type ShipmentOrder = {
+  id: string;
+  externalCode: string;
+  storeName: string;
+  receiverName: string;
+  receiverPhone: string;
+  receiverAddress: string;
+  remark: string;
+  items: ShipmentItem[];
+  importBatchId?: string;
+  createdAt?: string;
+};
+
+export type ShipmentItem = {
+  id: string;
+  skuCode: string;
+  skuName: string;
+  quantity: string;
+  spec: string;
 };
 
 export type FieldConfig = {
-  key: OrderField;
+  key: ShipmentField;
   label: string;
   required: boolean;
   width: string;
 };
 
-export type ColumnMapping = Partial<Record<OrderField, number | number[]>>;
-
-export type MappingDraft = {
-  sheetName: string;
-  headerRowIndex: number;
-  headers: string[];
-  fingerprint: string;
-  mapping: ColumnMapping;
-  fromMemory: boolean;
-  confidence: number;
-};
-
-export type ParseResult = MappingDraft & {
-  rows: OrderRow[];
-  sourceRows: string[][];
-  totalRows: number;
-};
-
 export type ValidationError = {
   rowId: string;
   rowIndex: number;
-  field: OrderField;
+  field: ShipmentField;
   fieldLabel: string;
   message: string;
 };
 
-export type ImportedOrder = {
-  id: string;
-  externalCode: string;
-  senderName: string;
-  senderPhone: string;
-  senderAddress: string;
-  receiverName: string;
-  receiverPhone: string;
-  receiverAddress: string;
-  weight: string;
-  quantity: string;
-  temperatureZone: string;
-  remark: string;
+export type ImportedShipmentRow = ShipmentRow & {
+  orderId: string;
+  itemId: string;
   importBatchId: string;
   createdAt: string;
 };
 
 export const fieldConfigs: FieldConfig[] = [
   { key: "externalCode", label: "外部编码", required: false, width: "150px" },
-  { key: "senderName", label: "发件人姓名", required: true, width: "130px" },
-  { key: "senderPhone", label: "发件人电话", required: true, width: "150px" },
-  { key: "senderAddress", label: "发件人地址", required: true, width: "260px" },
-  { key: "receiverName", label: "收件人姓名", required: true, width: "130px" },
-  { key: "receiverPhone", label: "收件人电话", required: true, width: "150px" },
-  { key: "receiverAddress", label: "收件人地址", required: true, width: "260px" },
-  { key: "weight", label: "重量(kg)", required: true, width: "110px" },
-  { key: "quantity", label: "件数", required: true, width: "100px" },
-  { key: "temperatureZone", label: "温层", required: true, width: "110px" },
-  { key: "remark", label: "备注", required: false, width: "180px" },
+  { key: "storeName", label: "收货门店", required: false, width: "180px" },
+  { key: "receiverName", label: "收件人姓名", required: false, width: "130px" },
+  { key: "receiverPhone", label: "收件人电话", required: false, width: "150px" },
+  { key: "receiverAddress", label: "收件人地址", required: false, width: "280px" },
+  { key: "skuCode", label: "SKU物品编码", required: true, width: "150px" },
+  { key: "skuName", label: "SKU物品名称", required: true, width: "220px" },
+  { key: "quantity", label: "SKU发货数量", required: true, width: "120px" },
+  { key: "spec", label: "SKU规格型号", required: false, width: "160px" },
+  { key: "remark", label: "备注", required: false, width: "200px" },
 ];
+
+export type ApiErrorResponse = {
+  error: string;
+  details?: unknown;
+};
+
+export type ImportProgress = {
+  label: string;
+  processed: number;
+  total: number;
+};

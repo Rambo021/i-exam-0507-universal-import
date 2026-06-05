@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { nanoid } from "nanoid";
-import { OrderRow } from "./types";
+import { ShipmentRow } from "./types";
+import { ParseRule, validateRule } from "./rules/schema";
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -18,47 +19,122 @@ function getSql() {
 export async function ensureSchema() {
   const sql = getSql();
   await sql`
+    CREATE TABLE IF NOT EXISTS parse_rules (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      file_types JSONB NOT NULL,
+      rule_json JSONB NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`
     CREATE TABLE IF NOT EXISTS import_batches (
       id TEXT PRIMARY KEY,
+      rule_id TEXT,
+      file_name TEXT,
+      status TEXT NOT NULL DEFAULT 'done',
       total_count INTEGER NOT NULL,
       success_count INTEGER NOT NULL,
       failed_count INTEGER NOT NULL,
+      parse_duration_ms INTEGER,
+      render_duration_ms INTEGER,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
   await sql`
-    CREATE TABLE IF NOT EXISTS orders (
+    CREATE TABLE IF NOT EXISTS shipment_orders (
       id TEXT PRIMARY KEY,
       external_code TEXT,
-      sender_name TEXT NOT NULL,
-      sender_phone TEXT NOT NULL,
-      sender_address TEXT NOT NULL,
-      receiver_name TEXT NOT NULL,
-      receiver_phone TEXT NOT NULL,
-      receiver_address TEXT NOT NULL,
-      weight NUMERIC NOT NULL,
-      quantity INTEGER NOT NULL,
-      temperature_zone TEXT NOT NULL,
+      store_name TEXT,
+      receiver_name TEXT,
+      receiver_phone TEXT,
+      receiver_address TEXT,
       remark TEXT,
       import_batch_id TEXT NOT NULL REFERENCES import_batches(id),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
-  await sql`CREATE INDEX IF NOT EXISTS idx_orders_external_code ON orders(external_code)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_orders_receiver_name ON orders(receiver_name)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)`;
   await sql`
-    CREATE TABLE IF NOT EXISTS template_mappings (
+    CREATE TABLE IF NOT EXISTS shipment_items (
       id TEXT PRIMARY KEY,
-      header_fingerprint TEXT NOT NULL UNIQUE,
-      sheet_name TEXT NOT NULL,
-      header_row_index INTEGER NOT NULL,
-      mapping_json JSONB NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      order_id TEXT NOT NULL REFERENCES shipment_orders(id) ON DELETE CASCADE,
+      sku_code TEXT NOT NULL,
+      sku_name TEXT NOT NULL,
+      quantity NUMERIC NOT NULL,
+      spec TEXT
     )
   `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_shipment_orders_external_code ON shipment_orders(external_code)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_shipment_orders_receiver_name ON shipment_orders(receiver_name)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_shipment_orders_created_at ON shipment_orders(created_at)`;
+  // migrations for tables created before V2 schema
+  await sql`ALTER TABLE import_batches ADD COLUMN IF NOT EXISTS rule_id TEXT`;
+  await sql`ALTER TABLE import_batches ADD COLUMN IF NOT EXISTS file_name TEXT`;
+  await sql`ALTER TABLE import_batches ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'done'`;
+  await sql`ALTER TABLE import_batches ADD COLUMN IF NOT EXISTS parse_duration_ms INTEGER`;
+  await sql`ALTER TABLE import_batches ADD COLUMN IF NOT EXISTS render_duration_ms INTEGER`;
+}
+
+export async function listRules() {
+  await ensureSchema();
+  const sql = getSql();
+  return sql`
+    SELECT
+      id,
+      name,
+      description,
+      file_types AS "fileTypes",
+      rule_json AS "ruleJson",
+      version,
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
+    FROM parse_rules
+    WHERE deleted_at IS NULL
+    ORDER BY updated_at DESC
+  `;
+}
+
+export async function getRule(id: string) {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT rule_json AS "ruleJson"
+    FROM parse_rules
+    WHERE id = ${id} AND deleted_at IS NULL
+    LIMIT 1
+  `;
+  return rows[0]?.ruleJson as ParseRule | undefined;
+}
+
+export async function upsertRule(input: unknown) {
+  await ensureSchema();
+  const sql = getSql();
+  const rule = validateRule(input);
+  await sql`
+    INSERT INTO parse_rules (id, name, description, file_types, rule_json, version)
+    VALUES (${rule.id}, ${rule.name}, ${rule.description}, ${JSON.stringify(rule.fileTypes)}, ${JSON.stringify(rule)}, ${rule.version})
+    ON CONFLICT (id)
+    DO UPDATE SET
+      name = EXCLUDED.name,
+      description = EXCLUDED.description,
+      file_types = EXCLUDED.file_types,
+      rule_json = EXCLUDED.rule_json,
+      version = EXCLUDED.version,
+      deleted_at = NULL,
+      updated_at = NOW()
+  `;
+  return rule;
+}
+
+export async function softDeleteRule(id: string) {
+  await ensureSchema();
+  const sql = getSql();
+  await sql`UPDATE parse_rules SET deleted_at = NOW(), updated_at = NOW() WHERE id = ${id}`;
 }
 
 export async function findDuplicateExternalCodes(codes: string[]) {
@@ -69,60 +145,102 @@ export async function findDuplicateExternalCodes(codes: string[]) {
 
   const rows = (await sql`
     SELECT external_code
-    FROM orders
+    FROM shipment_orders
     WHERE external_code = ANY(${cleanCodes})
   `) as { external_code: string }[];
   return new Set(rows.map((row) => row.external_code));
 }
 
-export async function importOrders(rows: OrderRow[]) {
+function orderKey(row: ShipmentRow) {
+  return row.orderKey || row.externalCode.trim() || `${row.storeName}|${row.receiverName}|${row.receiverPhone}|${row.receiverAddress}|${row.remark}`;
+}
+
+export async function importShipments(params: {
+  rows: ShipmentRow[];
+  ruleId?: string;
+  fileName?: string;
+  parseDurationMs?: number;
+  renderDurationMs?: number;
+}) {
   await ensureSchema();
   const sql = getSql();
   const batchId = nanoid(12);
   await sql`
-    INSERT INTO import_batches (id, total_count, success_count, failed_count)
-    VALUES (${batchId}, ${rows.length}, ${rows.length}, 0)
+    INSERT INTO import_batches (
+      id,
+      rule_id,
+      file_name,
+      status,
+      total_count,
+      success_count,
+      failed_count,
+      parse_duration_ms,
+      render_duration_ms
+    )
+    VALUES (
+      ${batchId},
+      ${params.ruleId ?? null},
+      ${params.fileName ?? null},
+      'processing',
+      ${params.rows.length},
+      0,
+      0,
+      ${params.parseDurationMs ?? null},
+      ${params.renderDurationMs ?? null}
+    )
   `;
 
-  for (const row of rows) {
+  const grouped = new Map<string, ShipmentRow[]>();
+  params.rows.forEach((row) => {
+    const key = orderKey(row);
+    grouped.set(key, [...(grouped.get(key) ?? []), row]);
+  });
+
+  let successCount = 0;
+  for (const rows of grouped.values()) {
+    const first = rows[0];
+    const orderId = nanoid(12);
     await sql`
-      INSERT INTO orders (
+      INSERT INTO shipment_orders (
         id,
         external_code,
-        sender_name,
-        sender_phone,
-        sender_address,
+        store_name,
         receiver_name,
         receiver_phone,
         receiver_address,
-        weight,
-        quantity,
-        temperature_zone,
         remark,
         import_batch_id
       )
       VALUES (
-        ${nanoid(12)},
-        ${row.externalCode.trim() || null},
-        ${row.senderName.trim()},
-        ${row.senderPhone.trim()},
-        ${row.senderAddress.trim()},
-        ${row.receiverName.trim()},
-        ${row.receiverPhone.trim()},
-        ${row.receiverAddress.trim()},
-        ${Number(row.weight)},
-        ${Number(row.quantity)},
-        ${row.temperatureZone.trim()},
-        ${row.remark.trim() || null},
+        ${orderId},
+        ${first.externalCode.trim() || null},
+        ${first.storeName.trim() || null},
+        ${first.receiverName.trim() || null},
+        ${first.receiverPhone.trim() || null},
+        ${first.receiverAddress.trim() || null},
+        ${first.remark.trim() || null},
         ${batchId}
       )
     `;
+    for (const row of rows) {
+      await sql`
+        INSERT INTO shipment_items (id, order_id, sku_code, sku_name, quantity, spec)
+        VALUES (${nanoid(12)}, ${orderId}, ${row.skuCode.trim()}, ${row.skuName.trim()}, ${Number(row.quantity)}, ${row.spec.trim() || null})
+      `;
+      successCount += 1;
+    }
   }
 
-  return { batchId, successCount: rows.length, failedCount: 0 };
+  await sql`
+    UPDATE import_batches
+    SET status = 'done', success_count = ${successCount}, failed_count = ${params.rows.length - successCount}
+    WHERE id = ${batchId}
+  `;
+
+  return { batchId, successCount, failedCount: params.rows.length - successCount };
 }
 
-export async function queryOrders(params: {
+export async function queryShipmentRows(params: {
   externalCode?: string;
   receiverName?: string;
   startDate?: string;
@@ -135,7 +253,6 @@ export async function queryOrders(params: {
   const page = Math.max(1, params.page || 1);
   const pageSize = Math.min(100, Math.max(1, params.pageSize || 20));
   const offset = (page - 1) * pageSize;
-
   const externalCode = `%${params.externalCode ?? ""}%`;
   const receiverName = `%${params.receiverName ?? ""}%`;
   const startDate = params.startDate ? new Date(params.startDate).toISOString() : "1970-01-01T00:00:00.000Z";
@@ -143,35 +260,37 @@ export async function queryOrders(params: {
 
   const rows = await sql`
     SELECT
-      id,
-      COALESCE(external_code, '') AS "externalCode",
-      sender_name AS "senderName",
-      sender_phone AS "senderPhone",
-      sender_address AS "senderAddress",
-      receiver_name AS "receiverName",
-      receiver_phone AS "receiverPhone",
-      receiver_address AS "receiverAddress",
-      weight::TEXT AS weight,
-      quantity::TEXT AS quantity,
-      temperature_zone AS "temperatureZone",
-      COALESCE(remark, '') AS remark,
-      import_batch_id AS "importBatchId",
-      created_at AS "createdAt"
-    FROM orders
-    WHERE COALESCE(external_code, '') ILIKE ${externalCode}
-      AND receiver_name ILIKE ${receiverName}
-      AND created_at BETWEEN ${startDate}::timestamptz AND ${endDate}::timestamptz
-    ORDER BY created_at DESC
+      so.id AS "orderId",
+      si.id AS "itemId",
+      COALESCE(so.external_code, '') AS "externalCode",
+      COALESCE(so.store_name, '') AS "storeName",
+      COALESCE(so.receiver_name, '') AS "receiverName",
+      COALESCE(so.receiver_phone, '') AS "receiverPhone",
+      COALESCE(so.receiver_address, '') AS "receiverAddress",
+      si.sku_code AS "skuCode",
+      si.sku_name AS "skuName",
+      si.quantity::TEXT AS quantity,
+      COALESCE(si.spec, '') AS spec,
+      COALESCE(so.remark, '') AS remark,
+      so.import_batch_id AS "importBatchId",
+      so.created_at AS "createdAt"
+    FROM shipment_orders so
+    JOIN shipment_items si ON si.order_id = so.id
+    WHERE COALESCE(so.external_code, '') ILIKE ${externalCode}
+      AND COALESCE(so.receiver_name, '') ILIKE ${receiverName}
+      AND so.created_at BETWEEN ${startDate}::timestamptz AND ${endDate}::timestamptz
+    ORDER BY so.created_at DESC, so.id DESC
     LIMIT ${pageSize}
     OFFSET ${offset}
   `;
 
   const countRows = await sql`
     SELECT COUNT(*)::INTEGER AS total
-    FROM orders
-    WHERE COALESCE(external_code, '') ILIKE ${externalCode}
-      AND receiver_name ILIKE ${receiverName}
-      AND created_at BETWEEN ${startDate}::timestamptz AND ${endDate}::timestamptz
+    FROM shipment_orders so
+    JOIN shipment_items si ON si.order_id = so.id
+    WHERE COALESCE(so.external_code, '') ILIKE ${externalCode}
+      AND COALESCE(so.receiver_name, '') ILIKE ${receiverName}
+      AND so.created_at BETWEEN ${startDate}::timestamptz AND ${endDate}::timestamptz
   `;
 
   return {
@@ -180,24 +299,4 @@ export async function queryOrders(params: {
     page,
     pageSize,
   };
-}
-
-export async function upsertTemplateMapping(input: {
-  fingerprint: string;
-  sheetName: string;
-  headerRowIndex: number;
-  mapping: unknown;
-}) {
-  await ensureSchema();
-  const sql = getSql();
-  await sql`
-    INSERT INTO template_mappings (id, header_fingerprint, sheet_name, header_row_index, mapping_json)
-    VALUES (${nanoid(12)}, ${input.fingerprint}, ${input.sheetName}, ${input.headerRowIndex}, ${JSON.stringify(input.mapping)})
-    ON CONFLICT (header_fingerprint)
-    DO UPDATE SET
-      sheet_name = EXCLUDED.sheet_name,
-      header_row_index = EXCLUDED.header_row_index,
-      mapping_json = EXCLUDED.mapping_json,
-      updated_at = NOW()
-  `;
 }

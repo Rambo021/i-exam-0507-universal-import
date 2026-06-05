@@ -43,9 +43,18 @@ next-env.d.ts
 
 # local dev server logs
 dev-server.*.log
+dev-v2.*.log
+dev-v2*.log
+dev-current.*.log
+tmp-browser-*.png
+tmp-safe-demos/
 
 .vercel
 .env*.local
 
 # generated local import samples
 /test-excels/
+
+# exam source files kept locally
+/AI考试附件.zip
+/考试要求-文件版本.html

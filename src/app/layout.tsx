@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "万能导入下单系统",
-  description: "多模板 Excel 自动导入下单系统",
+  title: "万能导入 V2",
+  description: "规则引擎与 AI 辅助生成的多格式出库单导入系统",
 };
 
 export default function RootLayout({

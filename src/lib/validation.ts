@@ -1,6 +1,4 @@
-import { FieldConfig, OrderField, OrderRow, ValidationError, fieldConfigs } from "./types";
-
-const temperatureZones = new Set(["常温", "冷藏", "冷冻"]);
+import { FieldConfig, ShipmentField, ShipmentRow, ValidationError, fieldConfigs } from "./types";
 
 function isBlank(value: string) {
   return !String(value ?? "").trim();
@@ -11,11 +9,11 @@ function isValidPhone(value: string) {
   return /^(1[3-9]\d{9}|0\d{2,3}\d{7,8}|\d{7,12})$/.test(normalized);
 }
 
-function getFieldConfig(field: OrderField): FieldConfig {
+function getFieldConfig(field: ShipmentField): FieldConfig {
   return fieldConfigs.find((item) => item.key === field)!;
 }
 
-function pushError(errors: ValidationError[], row: OrderRow, rowIndex: number, field: OrderField, message: string) {
+function pushError(errors: ValidationError[], row: ShipmentRow, rowIndex: number, field: ShipmentField, message: string) {
   errors.push({
     rowId: row.id,
     rowIndex,
@@ -25,7 +23,7 @@ function pushError(errors: ValidationError[], row: OrderRow, rowIndex: number, f
   });
 }
 
-export function validateRows(rows: OrderRow[], historicalDuplicates = new Set<string>()) {
+export function validateRows(rows: ShipmentRow[], historicalDuplicates = new Set<string>()) {
   const errors: ValidationError[] = [];
   const externalCodeMap = new Map<string, number[]>();
 
@@ -37,25 +35,22 @@ export function validateRows(rows: OrderRow[], historicalDuplicates = new Set<st
       }
     }
 
-    if (!isBlank(row.senderPhone) && !isValidPhone(row.senderPhone)) {
-      pushError(errors, row, rowIndex, "senderPhone", "格式错误");
+    const hasStore = !isBlank(row.storeName);
+    const hasReceiverGroup = !isBlank(row.receiverName) && !isBlank(row.receiverPhone) && !isBlank(row.receiverAddress);
+    if (!hasStore && !hasReceiverGroup) {
+      pushError(errors, row, rowIndex, "storeName", "收货门店或收件人信息二选一必填");
+      if (isBlank(row.receiverName)) pushError(errors, row, rowIndex, "receiverName", "收件人模式下不能为空");
+      if (isBlank(row.receiverPhone)) pushError(errors, row, rowIndex, "receiverPhone", "收件人模式下不能为空");
+      if (isBlank(row.receiverAddress)) pushError(errors, row, rowIndex, "receiverAddress", "收件人模式下不能为空");
     }
+
     if (!isBlank(row.receiverPhone) && !isValidPhone(row.receiverPhone)) {
       pushError(errors, row, rowIndex, "receiverPhone", "格式错误");
     }
 
-    const weight = Number(row.weight);
-    if (!isBlank(row.weight) && (!Number.isFinite(weight) || weight <= 0)) {
-      pushError(errors, row, rowIndex, "weight", "必须为正数");
-    }
-
     const quantity = Number(row.quantity);
-    if (!isBlank(row.quantity) && (!Number.isInteger(quantity) || quantity <= 0)) {
-      pushError(errors, row, rowIndex, "quantity", "必须为正整数");
-    }
-
-    if (!isBlank(row.temperatureZone) && !temperatureZones.has(row.temperatureZone.trim())) {
-      pushError(errors, row, rowIndex, "temperatureZone", "只能是常温/冷藏/冷冻");
+    if (!isBlank(row.quantity) && (!Number.isFinite(quantity) || quantity <= 0)) {
+      pushError(errors, row, rowIndex, "quantity", "必须为正数");
     }
 
     const externalCode = row.externalCode.trim();
