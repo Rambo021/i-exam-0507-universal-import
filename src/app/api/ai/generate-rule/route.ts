@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { matchBuiltInRule } from "@/lib/rules/built-in";
 import { FileStructureSummary, ParseRule, validateRule } from "@/lib/rules/schema";
 
 function findHeader(summary: FileStructureSummary) {
@@ -194,6 +195,15 @@ export async function POST(request: Request) {
     const body = (await request.json()) as { summary?: FileStructureSummary };
     if (!body.summary) {
       return NextResponse.json({ error: "缺少文件结构摘要" }, { status: 400 });
+    }
+
+    const builtInRule = matchBuiltInRule(body.summary);
+    if (builtInRule) {
+      return NextResponse.json({
+        rule: builtInRule,
+        aiReady: true,
+        aiStatus: "matched_builtin",
+      });
     }
 
     const apiKey = process.env.AI_API_KEY;

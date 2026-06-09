@@ -47,7 +47,11 @@ export type MatrixParserRule = {
   sheet?: string;
   headerRows: number[];
   rowStart: number;
+  rowEndStrategy?: "untilEmpty" | "untilFooter";
+  footerPattern?: string;
+  skipRows?: RowFilterRule[];
   rowKey: CellSelector;
+  rowExtractors?: Record<string, CellSelector>;
   colKey: {
     type: "store" | "date" | "sku";
     startCol: number;
@@ -88,6 +92,8 @@ export type TextBlocksParserRule = {
   blockSeparator: string;
   headerExtractors: Record<string, CellSelector>;
   itemLinePattern: string;
+  lineContinuationPattern?: string;
+  skipLinePattern?: string;
 };
 
 export type PdfTablesParserRule = {

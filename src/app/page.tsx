@@ -122,6 +122,8 @@ export default function Home() {
   const [fileName, setFileName] = useState("");
   const [parseDurationMs, setParseDurationMs] = useState<number | undefined>();
   const [renderStartedAt, setRenderStartedAt] = useState(0);
+  const [previewPage, setPreviewPage] = useState(1);
+  const [previewPageSize, setPreviewPageSize] = useState(100);
 
   const errors = useMemo(() => validateRows(rows, historicalDuplicates), [rows, historicalDuplicates]);
   const errorsByCell = useMemo(() => {
@@ -132,7 +134,10 @@ export default function Home() {
     });
     return map;
   }, [errors]);
-  const visibleRows = rows.length > 200 ? rows.slice(0, 200) : rows;
+  const totalPreviewPages = Math.max(1, Math.ceil(rows.length / previewPageSize));
+  const currentPreviewPage = Math.min(previewPage, totalPreviewPages);
+  const previewStartIndex = (currentPreviewPage - 1) * previewPageSize;
+  const visibleRows = rows.slice(previewStartIndex, previewStartIndex + previewPageSize);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -176,6 +181,7 @@ export default function Home() {
     if (!file) return;
     setMessage("");
     setRows([]);
+    setPreviewPage(1);
     setSelectedRuleId("");
     setRuleDraft("");
     setProgress({ label: "分析文件结构", processed: 0, total: 1 });
@@ -290,6 +296,7 @@ export default function Home() {
       if (!response.ok) throw new Error(data.error ?? "解析失败");
       setRenderStartedAt(performance.now());
       setRows(data.rows);
+      setPreviewPage(1);
       setParseDurationMs(data.parseDurationMs);
       setState("preview-ready");
       setMessage(`解析完成：${data.rows.length} 条 SKU 明细，解析耗时 ${data.parseDurationMs}ms。`);
@@ -565,11 +572,18 @@ export default function Home() {
                 <div>
                   <h2 className="font-semibold">预览列表</h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    共 {rows.length} 条 SKU 明细，错误 {errors.length} 条。{rows.length > 200 ? "当前启用前 200 行分批渲染预览。" : ""}
+                    共 {rows.length} 条 SKU 明细，错误 {errors.length} 条。当前显示第 {previewStartIndex + 1}-{Math.min(previewStartIndex + visibleRows.length, rows.length)} 条。
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => setRows((current) => [...current, emptyRow()])} className="inline-flex h-8 items-center gap-2 rounded border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRows((current) => [...current, emptyRow()]);
+                      setPreviewPage(Math.max(1, Math.ceil((rows.length + 1) / previewPageSize)));
+                    }}
+                    className="inline-flex h-8 items-center gap-2 rounded border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50"
+                  >
                     <Plus size={15} />
                     新增行
                   </button>
@@ -627,17 +641,18 @@ export default function Home() {
                   <tbody>
                     {visibleRows.map((row, rowIndex) => (
                       <tr key={row.id} className="hover:bg-slate-50">
-                        <td className="sticky left-0 border-b border-r border-slate-200 bg-white px-2 py-1 text-slate-500">{rowIndex + 1}</td>
+                        <td className="sticky left-0 border-b border-r border-slate-200 bg-white px-2 py-1 text-slate-500">{previewStartIndex + rowIndex + 1}</td>
                         {fieldConfigs.map((field, fieldIndex) => {
                           const cellErrors = errorsByCell.get(`${row.id}:${field.key}`) ?? [];
+                          const absoluteRowIndex = previewStartIndex + rowIndex;
                           return (
                             <td key={field.key} className="border-b border-r border-slate-200 p-1 align-top">
                               <input
-                                data-cell={`${rowIndex}-${fieldIndex}`}
+                                data-cell={`${absoluteRowIndex}-${fieldIndex}`}
                                 value={row[field.key]}
                                 title={cellErrors.join("；")}
                                 onChange={(event) => updateCell(row.id, field.key, event.target.value)}
-                                onKeyDown={(event) => handleCellKeyDown(event, rowIndex, fieldIndex)}
+                                onKeyDown={(event) => handleCellKeyDown(event, absoluteRowIndex, fieldIndex)}
                                 className={`h-8 w-full rounded-sm border px-2 outline-none focus:border-[#0fc6c2] ${cellErrors.length ? "border-red-500 bg-red-50 text-red-900" : "border-transparent bg-transparent"}`}
                               />
                               {cellErrors.length ? <div className="mt-1 text-xs text-red-700">{cellErrors[0]}</div> : null}
@@ -654,6 +669,62 @@ export default function Home() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm">
+                <div className="text-slate-500">
+                  共 {rows.length} 条，每页
+                  <select
+                    value={previewPageSize}
+                    onChange={(event) => {
+                      setPreviewPageSize(Number(event.target.value));
+                      setPreviewPage(1);
+                    }}
+                    className="mx-2 h-8 rounded border border-slate-300 bg-white px-2"
+                  >
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={200}>200</option>
+                  </select>
+                  条
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={currentPreviewPage <= 1}
+                    onClick={() => setPreviewPage(1)}
+                    className="h-8 rounded border border-slate-300 px-3 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    首页
+                  </button>
+                  <button
+                    type="button"
+                    disabled={currentPreviewPage <= 1}
+                    onClick={() => setPreviewPage((page) => Math.max(1, page - 1))}
+                    className="h-8 rounded border border-slate-300 px-3 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    上一页
+                  </button>
+                  <span className="px-3 text-slate-600">
+                    {currentPreviewPage} / {totalPreviewPages}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={currentPreviewPage >= totalPreviewPages}
+                    onClick={() => setPreviewPage((page) => Math.min(totalPreviewPages, page + 1))}
+                    className="h-8 rounded border border-slate-300 px-3 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    下一页
+                  </button>
+                  <button
+                    type="button"
+                    disabled={currentPreviewPage >= totalPreviewPages}
+                    onClick={() => setPreviewPage(totalPreviewPages)}
+                    className="h-8 rounded border border-slate-300 px-3 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    末页
+                  </button>
+                </div>
               </div>
             </section>
           ) : null}

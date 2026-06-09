@@ -55,7 +55,7 @@ function normalize(value: string, transform?: CellSelector["cellTransform"]) {
 }
 
 function firstRegexValue(text: string, pattern: string) {
-  const match = text.match(new RegExp(pattern, "i"));
+  const match = text.match(new RegExp(pattern, "im"));
   if (!match) return "";
   const groups = match.groups as Record<string, string> | undefined;
   return groups?.value ?? match[1] ?? match[0] ?? "";
@@ -156,7 +156,7 @@ function selectSheet(file: ParsedFile, sheetName?: string) {
 function parseTableSheet(rule: ParseRule, parser: TableParserRule, sheet: SheetData, overrideExtracted?: Record<string, string>) {
   const headers = sheet.rows[parser.headerRow] ?? [];
   const rows: ShipmentRow[] = [];
-  const tailText = sheet.rows.slice(parser.dataStartRow).map((row) => row.join(" ")).join("\n");
+  const tailText = sheet.rows.map((row) => row.join(" ")).join("\n");
   const tailExtracted = Object.fromEntries(
     Object.entries(parser.tailExtractors ?? {}).map(([key, selector]) => [key, resolveSelector(selector, { textBlock: tailText, sheetName: sheet.name })]),
   );
@@ -196,11 +196,18 @@ function parseMatrix(file: ParsedFile, rule: ParseRule, parser: MatrixParserRule
   const sheet = selectSheet(file, parser.sheet);
   const rows: ShipmentRow[] = [];
   const endCol = parser.colKey.endCol ?? Math.max(0, ...sheet.rows.map((row) => row.length));
+  const headers = sheet.rows[parser.headerRows.at(-1) ?? 0] ?? [];
 
   for (let rowIndex = parser.rowStart; rowIndex < sheet.rows.length; rowIndex += 1) {
     const row = sheet.rows[rowIndex];
-    if (!row.some(Boolean)) continue;
-    const rowKey = resolveSelector(parser.rowKey, { row, sheetName: sheet.name });
+    const joined = row.join(" ");
+    if (parser.rowEndStrategy === "untilEmpty" && !row.some(Boolean)) break;
+    if (parser.rowEndStrategy === "untilFooter" && parser.footerPattern && new RegExp(parser.footerPattern).test(joined)) break;
+    if (shouldSkipRow(row, parser.skipRows)) continue;
+    const rowExtracted = Object.fromEntries(
+      Object.entries(parser.rowExtractors ?? {}).map(([key, selector]) => [key, resolveSelector(selector, { row, headers, sheetName: sheet.name })]),
+    );
+    const rowKey = resolveSelector(parser.rowKey, { row, headers, sheetName: sheet.name, extracted: rowExtracted });
     for (let colIndex = parser.colKey.startCol; colIndex < endCol; colIndex += 1) {
       const cell = row[colIndex]?.trim() ?? "";
       if (parser.skipEmptyCells !== false && !cell) continue;
@@ -208,8 +215,11 @@ function parseMatrix(file: ParsedFile, rule: ParseRule, parser: MatrixParserRule
       const parts = splitMatrixCell(cell, parser);
       parts.forEach((part, partIndex) => {
         const extracted: Record<string, string> = {
+          ...rowExtracted,
           rowKey,
           colKey: colValue,
+          storeName: parser.colKey.type === "store" ? colValue : rowKey,
+          date: parser.colKey.type === "date" ? colValue : "",
           matrixValue: cell,
           matrixItemName: part.name,
           matrixQuantity: part.quantity,
@@ -217,7 +227,7 @@ function parseMatrix(file: ParsedFile, rule: ParseRule, parser: MatrixParserRule
         rows.push(
           rowToShipment(rule, {
             row,
-            headers: sheet.rows[parser.headerRows.at(-1) ?? 0] ?? [],
+            headers,
             sheetName: sheet.name,
             textBlock: cell,
             extracted,
@@ -310,9 +320,19 @@ function parseTextBlocks(file: ParsedFile, rule: ParseRule, parser: TextBlocksPa
       Object.entries(parser.headerExtractors).map(([key, selector]) => [key, resolveSelector(selector, { textBlock: block })]),
     );
     const rows: ShipmentRow[] = [];
+    const sourceLines = block.split(/\r?\n/).reduce<string[]>((acc, line) => {
+      if (parser.skipLinePattern && new RegExp(parser.skipLinePattern, "i").test(line)) return acc;
+      if (parser.lineContinuationPattern && new RegExp(parser.lineContinuationPattern, "i").test(line) && acc.length) {
+        acc[acc.length - 1] = `${acc[acc.length - 1]} ${line.trim()}`;
+        return acc;
+      }
+      acc.push(line);
+      return acc;
+    }, []);
+    const source = sourceLines.join("\n");
     const regex = new RegExp(parser.itemLinePattern, "gim");
     let match: RegExpExecArray | null;
-    while ((match = regex.exec(block))) {
+    while ((match = regex.exec(source))) {
       const groups = (match.groups ?? {}) as Record<string, string>;
       const row = [groups.skuCode ?? groups.code ?? "", groups.skuName ?? groups.name ?? "", groups.spec ?? "", groups.quantity ?? groups.qty ?? ""];
       const headers = ["skuCode", "skuName", "spec", "quantity"];

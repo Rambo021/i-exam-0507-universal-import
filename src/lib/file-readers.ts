@@ -1,6 +1,11 @@
 import * as XLSX from "xlsx";
 import mammoth from "mammoth";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { FileStructureSummary, ParsedFile, SheetData, TextBlockSummary, getFileType } from "./rules/schema";
+
+const require = createRequire(import.meta.url);
 
 function normalizeCell(value: unknown) {
   return String(value ?? "").trim();
@@ -117,7 +122,12 @@ async function readDocx(fileName: string, data: ArrayBuffer): Promise<ParsedFile
 }
 
 async function readPdf(fileName: string, data: ArrayBuffer): Promise<ParsedFile> {
+  if (typeof globalThis.DOMMatrix === "undefined") {
+    const { DOMMatrix } = require("@napi-rs/canvas") as { DOMMatrix: typeof globalThis.DOMMatrix };
+    globalThis.DOMMatrix = DOMMatrix;
+  }
   const { PDFParse } = await import("pdf-parse");
+  PDFParse.setWorker(pathToFileURL(path.join(process.cwd(), "node_modules", "pdf-parse", "dist", "worker", "pdf.worker.mjs")).toString());
   const parser = new PDFParse({ data: Buffer.from(data) });
   const result = await parser.getText();
   await parser.destroy();
