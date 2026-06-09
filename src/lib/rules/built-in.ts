@@ -82,6 +82,114 @@ export const builtInRules: ParseRule[] = [
     aiHints: [{ path: "parser", confidence: 0.9, reason: "门店列从第 14 列开始，到下单后结余前结束" }],
   },
   {
+    id: "builtin-multi-sheet-store-outbound-xlsx-v1",
+    name: "内置模板：多门店分 Sheet 出库单",
+    description: "适配每个门店一个 Sheet 的出库单，商品明细在表头后，收货信息在尾部。",
+    fileTypes: ["xlsx", "xls"],
+    version: 1,
+    parser: {
+      mode: "multiSheetTable",
+      headerRow: 2,
+      dataStartRow: 3,
+      dataEndStrategy: "untilFooter",
+      footerPattern: "^(合计|收货门店|联系电话|制单人)",
+      skipRows: [{ type: "contains", text: "合计" }],
+      tailExtractors: {
+        storeName: { source: "textBlock", pattern: "^(?<value>.+?)出库单", confidence: 0.9, reason: "Sheet 标题行包含完整门店名称" },
+        receiverName: { source: "textBlock", pattern: "联系人[:：]?\\s*(?<value>[^\\s]+)", confidence: 0.9, reason: "尾部联系人字段" },
+        receiverPhone: { source: "textBlock", pattern: "联系电话[:：]?\\s*(?<value>1[3-9]\\d{9}|0\\d{2,3}-?\\d{7,8})", cellTransform: "phone", confidence: 0.9, reason: "尾部联系电话字段" },
+        receiverAddress: { source: "textBlock", pattern: "收货地址[:：]?\\s*(?<value>[^\\n]+)", confidence: 0.9, reason: "尾部收货地址字段" },
+      },
+    },
+    output: {
+      groupBy: [{ source: "extracted", key: "storeName" }],
+      order: {
+        storeName: { source: "extracted", key: "storeName", confidence: 0.9, reason: "Sheet 标题行" },
+        receiverName: { source: "extracted", key: "receiverName", confidence: 0.9, reason: "尾部联系人字段" },
+        receiverPhone: { source: "extracted", key: "receiverPhone", confidence: 0.9, reason: "尾部联系电话字段" },
+        receiverAddress: { source: "extracted", key: "receiverAddress", confidence: 0.9, reason: "尾部收货地址字段" },
+      },
+      item: {
+        skuCode: { source: "header", header: "物品编码", confidence: 0.95, reason: "商品表表头" },
+        skuName: { source: "header", header: "物品名称", confidence: 0.95, reason: "商品表表头" },
+        quantity: { source: "header", header: "出库数量", cellTransform: "number", confidence: 0.95, reason: "商品表表头" },
+        spec: { source: "header", header: "规格型号", confidence: 0.9, reason: "商品表表头" },
+      },
+    },
+    aiHints: [{ path: "parser", confidence: 0.9, reason: "多 Sheet 门店出库单固定版式" }],
+  },
+  {
+    id: "builtin-summary-shipment-detail-xlsx-v1",
+    name: "内置模板：汇总单发货明细 Excel",
+    description: "适配汇总单发货明细：首行说明、第二行字段表头、后续每行一条发货 SKU 明细。",
+    fileTypes: ["xlsx", "xls"],
+    version: 1,
+    parser: {
+      mode: "table",
+      sheet: "汇总单发货明细",
+      headerRow: 1,
+      dataStartRow: 2,
+      dataEndStrategy: "untilEmpty",
+    },
+    output: {
+      groupBy: [{ source: "header", header: "配送单号" }, { source: "header", header: "配送汇总单号" }],
+      order: {
+        externalCode: { source: "header", header: "配送单号", confidence: 0.95, reason: "配送单号作为订单级外部编码" },
+        storeName: { source: "header", header: "收货机构", confidence: 0.95, reason: "表头字段" },
+        receiverName: { source: "header", header: "收货人", confidence: 0.9, reason: "表头字段" },
+        receiverPhone: { source: "header", header: "收货电话", cellTransform: "phone", confidence: 0.9, reason: "表头字段" },
+        receiverAddress: { source: "header", header: "收货地址", confidence: 0.9, reason: "表头字段" },
+        remark: { source: "header", header: "单据备注", confidence: 0.75, reason: "表头字段" },
+      },
+      item: {
+        skuCode: { source: "header", header: "物品编码", confidence: 0.95, reason: "表头字段" },
+        skuName: { source: "header", header: "物品名称", confidence: 0.95, reason: "表头字段" },
+        quantity: { source: "header", header: "发货数量", cellTransform: "number", confidence: 0.95, reason: "表头字段" },
+        spec: { source: "header", header: "规格型号", confidence: 0.9, reason: "表头字段" },
+      },
+    },
+    aiHints: [{ path: "parser", confidence: 0.95, reason: "汇总单发货明细固定表头" }],
+  },
+  {
+    id: "builtin-transfer-card-list-xlsx-v1",
+    name: "内置模板：门店调拨单卡片式 Excel",
+    description: "适配门店调拨单卡片式结构：每个调拨记录一张卡片，卡片内包含门店、收货人、电话、地址和物品表。",
+    fileTypes: ["xlsx", "xls"],
+    version: 1,
+    parser: {
+      mode: "cardList",
+      sheet: "调拨单",
+      boundary: { type: "regex", pattern: "调拨记录\\s*#\\d+" },
+      headerExtractors: {
+        storeName: { source: "textBlock", pattern: "调入门店\\s*(?<value>.*?)\\s+收货人", confidence: 0.95, reason: "卡片头部调入门店" },
+        receiverName: { source: "textBlock", pattern: "收货人\\s*(?<value>[^\\s]+)", confidence: 0.95, reason: "卡片头部收货人" },
+        receiverPhone: { source: "textBlock", pattern: "电话\\s*(?<value>1[3-9]\\d{9}|0\\d{2,3}-?\\d{7,8})", cellTransform: "phone", confidence: 0.95, reason: "卡片头部电话" },
+        receiverAddress: { source: "textBlock", pattern: "收货地址\\s*(?<value>[^\\n]+)", confidence: 0.95, reason: "卡片地址行" },
+      },
+      itemTable: {
+        headerPattern: "物品编码.*物品名称.*规格.*数量",
+        dataStartOffset: 1,
+        dataEndPattern: "^(调拨记录|合计)",
+      },
+    },
+    output: {
+      groupBy: [{ source: "extracted", key: "storeName" }],
+      order: {
+        storeName: { source: "extracted", key: "storeName", confidence: 0.95, reason: "卡片头部调入门店" },
+        receiverName: { source: "extracted", key: "receiverName", confidence: 0.95, reason: "卡片头部收货人" },
+        receiverPhone: { source: "extracted", key: "receiverPhone", confidence: 0.95, reason: "卡片头部电话" },
+        receiverAddress: { source: "extracted", key: "receiverAddress", confidence: 0.95, reason: "卡片地址行" },
+      },
+      item: {
+        skuCode: { source: "header", header: "物品编码", confidence: 0.95, reason: "卡片物品表表头" },
+        skuName: { source: "header", header: "物品名称", confidence: 0.95, reason: "卡片物品表表头" },
+        quantity: { source: "header", header: "数量", cellTransform: "number", confidence: 0.95, reason: "卡片物品表表头" },
+        spec: { source: "header", header: "规格", confidence: 0.9, reason: "卡片物品表表头" },
+      },
+    },
+    aiHints: [{ path: "parser", confidence: 0.95, reason: "门店调拨单卡片式固定版式" }],
+  },
+  {
     id: "builtin-dispatch-delivery-note-pdf-v1",
     name: "内置模板：配送单 PDF",
     description: "适配配送单 PDF 文本：头部单据/机构信息、明细行、尾部收货信息。",
@@ -135,6 +243,15 @@ function flattenSummary(summary: FileStructureSummary) {
 
 export function matchBuiltInRule(summary: FileStructureSummary) {
   const text = flattenSummary(summary);
+  if ((summary.fileType === "xlsx" || summary.fileType === "xls") && /配送汇总单号\*|物品行号\*|批次号\*|生产日期\*/.test(text) && /收货机构|收货电话|收货地址/.test(text)) {
+    return builtInRules.find((rule) => rule.id === "builtin-summary-shipment-detail-xlsx-v1");
+  }
+  if ((summary.fileType === "xlsx" || summary.fileType === "xls") && /门店调拨单|调拨记录|调入门店/.test(text) && /物品编码|物品名称|收货地址/.test(text)) {
+    return builtInRules.find((rule) => rule.id === "builtin-transfer-card-list-xlsx-v1");
+  }
+  if ((summary.fileType === "xlsx" || summary.fileType === "xls") && /出库单|出库日期|收货门店|出库数量/.test(text) && /联系人|联系电话|收货地址/.test(text)) {
+    return builtInRules.find((rule) => rule.id === "builtin-multi-sheet-store-outbound-xlsx-v1");
+  }
   if ((summary.fileType === "xlsx" || summary.fileType === "xls") && /配送发货单|收货机构|供货机构/.test(text) && /物品编码|物品名称|发货数量/.test(text)) {
     return builtInRules.find((rule) => rule.id === "builtin-dispatch-delivery-note-xlsx-v1");
   }

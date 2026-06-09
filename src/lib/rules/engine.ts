@@ -62,17 +62,18 @@ function firstRegexValue(text: string, pattern: string) {
 }
 
 function repairMojibake(value: string) {
-  if (!/[ÃÂÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖÙÚÛÜÝÞßà-ÿ]/.test(value)) return value;
+  const text = String(value ?? "");
+  if (!/[ÃÂÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖÙÚÛÜÝÞßà-ÿ]/.test(text)) return text;
   try {
-    const repaired = Buffer.from(value, "latin1").toString("utf8");
-    return repaired.includes("\uFFFD") ? value : repaired;
+    const repaired = Buffer.from(text, "latin1").toString("utf8");
+    return repaired.includes("\uFFFD") ? text : repaired;
   } catch {
-    return value;
+    return text;
   }
 }
 
 function normalizeHeaderText(value: string) {
-  return value
+  return String(value ?? "")
     .trim()
     .replace(/\s+/g, "")
     .replace(/[()（）【】[\]{}]/g, "");
@@ -120,11 +121,12 @@ function resolveGroupKey(selectors: CellSelector[] | undefined, context: Context
 }
 
 function shouldSkipRow(row: string[], filters: RowFilterRule[] = []) {
-  if (!row.some((cell) => cell.trim())) return true;
-  const joined = row.join(" ");
+  const cells = row.map((cell) => String(cell ?? ""));
+  if (!cells.some((cell) => cell.trim())) return true;
+  const joined = cells.join(" ");
   return filters.some((filter) => {
-    if (filter.type === "empty") return !row.some((cell) => cell.trim());
-    const target = filter.column === undefined ? joined : row[filter.column] ?? "";
+    if (filter.type === "empty") return !cells.some((cell) => cell.trim());
+    const target = filter.column === undefined ? joined : cells[filter.column] ?? "";
     if (filter.type === "contains") return target.includes(filter.text ?? "");
     return new RegExp(filter.pattern ?? "", "i").test(target);
   });
