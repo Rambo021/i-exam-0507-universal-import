@@ -3,13 +3,14 @@ import { ShipmentField, ShipmentRow } from "@/lib/types";
 export type FileType = "xlsx" | "xls" | "docx" | "pdf";
 
 export type CellSelector = {
-  source: "column" | "header" | "regex" | "static" | "sheetName" | "textBlock" | "extracted";
+  source: "column" | "header" | "regex" | "static" | "sheetName" | "textBlock" | "extracted" | "template" | "fallback";
   index?: number;
   header?: string;
   key?: string;
   pattern?: string;
   value?: string;
   joinWith?: string;
+  parts?: CellSelector[];
   cellTransform?: "trim" | "date" | "number" | "phone" | "none";
   confidence?: number;
   reason?: string;

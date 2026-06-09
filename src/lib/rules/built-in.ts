@@ -4,7 +4,7 @@ export const builtInRules: ParseRule[] = [
   {
     id: "builtin-dispatch-delivery-note-xlsx-v1",
     name: "内置模板：配送发货单 Excel",
-    description: "适配配送发货单：头部机构信息、商品明细表、尾部收货人信息。",
+    description: "适配配送发货单：头部机构信息、商品明细表、尾部收货人信息；外部编码用店名+物品编码生成。",
     fileTypes: ["xlsx", "xls"],
     version: 1,
     parser: {
@@ -23,9 +23,19 @@ export const builtInRules: ParseRule[] = [
       },
     },
     output: {
-      groupBy: [{ source: "extracted", key: "externalCode" }],
+      groupBy: [{
+        source: "template",
+        joinWith: "-",
+        parts: [{ source: "fallback", parts: [{ source: "extracted", key: "storeName" }, { source: "extracted", key: "warehouseName" }] }, { source: "header", header: "物品编码" }],
+      }],
       order: {
-        externalCode: { source: "extracted", key: "externalCode", confidence: 0.95, reason: "尾部单据号" },
+        externalCode: {
+          source: "template",
+          joinWith: "-",
+          parts: [{ source: "fallback", parts: [{ source: "extracted", key: "storeName" }, { source: "extracted", key: "warehouseName" }] }, { source: "header", header: "物品编码" }],
+          confidence: 0.95,
+          reason: "店名 + 物品编码生成外部编码",
+        },
         storeName: { source: "extracted", key: "storeName", confidence: 0.95, reason: "头部收货机构" },
         receiverName: { source: "extracted", key: "receiverName", confidence: 0.95, reason: "尾部收货人" },
         receiverPhone: { source: "extracted", key: "receiverPhone", confidence: 0.95, reason: "尾部收货电话" },
@@ -44,7 +54,7 @@ export const builtInRules: ParseRule[] = [
   {
     id: "builtin-store-sku-matrix-xlsx-v1",
     name: "内置模板：门店 SKU 矩阵 Excel",
-    description: "适配库存/下单矩阵：SKU 为行、门店为列；外部商品编码映射为 SKU物品编码，若为空则回退 SKU条码。",
+    description: "适配库存/下单矩阵：SKU 为行、门店为列；外部商品编码映射为 SKU物品编码，同时用店名+外部商品编码生成外部编码。",
     fileTypes: ["xlsx", "xls"],
     version: 1,
     parser: {
@@ -54,6 +64,7 @@ export const builtInRules: ParseRule[] = [
       rowEndStrategy: "untilEmpty",
       rowKey: { source: "extracted", key: "skuCode", confidence: 0.9, reason: "SKU 行编码" },
       rowExtractors: {
+        warehouseName: { source: "header", header: "仓库名称", confidence: 0.9, reason: "仓库字段用于生成外部编码" },
         skuCode: { source: "header", header: "外部商品编码", confidence: 0.95, reason: "SKU 行字段" },
         skuBarcode: { source: "header", header: "SKU条码", confidence: 0.85, reason: "外部商品编码为空时作为 SKU 编码兜底" },
         skuName: { source: "header", header: "SKU名称", confidence: 0.95, reason: "SKU 行字段" },
@@ -68,8 +79,19 @@ export const builtInRules: ParseRule[] = [
       skipEmptyCells: true,
     },
     output: {
-      groupBy: [{ source: "extracted", key: "storeName" }],
+      groupBy: [{
+        source: "template",
+        joinWith: "-",
+        parts: [{ source: "fallback", parts: [{ source: "extracted", key: "storeName" }, { source: "extracted", key: "warehouseName" }] }, { source: "extracted", key: "skuCode" }],
+      }],
       order: {
+        externalCode: {
+          source: "template",
+          joinWith: "-",
+          parts: [{ source: "fallback", parts: [{ source: "extracted", key: "storeName" }, { source: "extracted", key: "warehouseName" }] }, { source: "extracted", key: "skuCode" }],
+          confidence: 0.9,
+          reason: "店名 + 外部商品编码生成外部编码",
+        },
         storeName: { source: "extracted", key: "storeName", confidence: 0.95, reason: "门店列表头" },
       },
       item: {
@@ -102,8 +124,19 @@ export const builtInRules: ParseRule[] = [
       },
     },
     output: {
-      groupBy: [{ source: "extracted", key: "storeName" }],
+      groupBy: [{
+        source: "template",
+        joinWith: "-",
+        parts: [{ source: "fallback", parts: [{ source: "extracted", key: "storeName" }, { source: "extracted", key: "warehouseName" }] }, { source: "header", header: "物品编码" }],
+      }],
       order: {
+        externalCode: {
+          source: "template",
+          joinWith: "-",
+          parts: [{ source: "fallback", parts: [{ source: "extracted", key: "storeName" }, { source: "extracted", key: "warehouseName" }] }, { source: "header", header: "物品编码" }],
+          confidence: 0.9,
+          reason: "店名 + 物品编码生成外部编码",
+        },
         storeName: { source: "extracted", key: "storeName", confidence: 0.9, reason: "Sheet 标题行" },
         receiverName: { source: "extracted", key: "receiverName", confidence: 0.9, reason: "尾部联系人字段" },
         receiverPhone: { source: "extracted", key: "receiverPhone", confidence: 0.9, reason: "尾部联系电话字段" },
@@ -132,9 +165,19 @@ export const builtInRules: ParseRule[] = [
       dataEndStrategy: "untilEmpty",
     },
     output: {
-      groupBy: [{ source: "header", header: "配送单号" }, { source: "header", header: "配送汇总单号" }],
+      groupBy: [{
+        source: "template",
+        joinWith: "-",
+        parts: [{ source: "fallback", parts: [{ source: "header", header: "收货机构" }, { source: "header", header: "仓库名称" }, { source: "header", header: "仓库名" }] }, { source: "header", header: "物品编码" }],
+      }],
       order: {
-        externalCode: { source: "header", header: "配送单号", confidence: 0.95, reason: "配送单号作为订单级外部编码" },
+        externalCode: {
+          source: "template",
+          joinWith: "-",
+          parts: [{ source: "fallback", parts: [{ source: "header", header: "收货机构" }, { source: "header", header: "仓库名称" }, { source: "header", header: "仓库名" }] }, { source: "header", header: "物品编码" }],
+          confidence: 0.95,
+          reason: "店名 + 物品编码生成外部编码",
+        },
         storeName: { source: "header", header: "收货机构", confidence: 0.95, reason: "表头字段" },
         receiverName: { source: "header", header: "收货人", confidence: 0.9, reason: "表头字段" },
         receiverPhone: { source: "header", header: "收货电话", cellTransform: "phone", confidence: 0.9, reason: "表头字段" },
@@ -173,8 +216,19 @@ export const builtInRules: ParseRule[] = [
       },
     },
     output: {
-      groupBy: [{ source: "extracted", key: "storeName" }],
+      groupBy: [{
+        source: "template",
+        joinWith: "-",
+        parts: [{ source: "fallback", parts: [{ source: "extracted", key: "storeName" }, { source: "extracted", key: "warehouseName" }] }, { source: "header", header: "物品编码" }],
+      }],
       order: {
+        externalCode: {
+          source: "template",
+          joinWith: "-",
+          parts: [{ source: "fallback", parts: [{ source: "extracted", key: "storeName" }, { source: "extracted", key: "warehouseName" }] }, { source: "header", header: "物品编码" }],
+          confidence: 0.9,
+          reason: "店名 + 物品编码生成外部编码",
+        },
         storeName: { source: "extracted", key: "storeName", confidence: 0.95, reason: "卡片头部调入门店" },
         receiverName: { source: "extracted", key: "receiverName", confidence: 0.95, reason: "卡片头部收货人" },
         receiverPhone: { source: "extracted", key: "receiverPhone", confidence: 0.95, reason: "卡片头部电话" },
@@ -210,9 +264,19 @@ export const builtInRules: ParseRule[] = [
       skipLinePattern: "^(物品类别|第\\d+页|--|合$|计\\s|制单日期|收货人|收货地址|打印次数|备注|收货人签字|单据编号|分拣状态|预计|发货|供货|配送重量)",
     },
     output: {
-      groupBy: [{ source: "extracted", key: "externalCode" }],
+      groupBy: [{
+        source: "template",
+        joinWith: "-",
+        parts: [{ source: "fallback", parts: [{ source: "extracted", key: "storeName" }, { source: "extracted", key: "warehouseName" }] }, { source: "header", header: "skuCode" }],
+      }],
       order: {
-        externalCode: { source: "extracted", key: "externalCode", confidence: 0.95, reason: "PDF 头部单据编号" },
+        externalCode: {
+          source: "template",
+          joinWith: "-",
+          parts: [{ source: "fallback", parts: [{ source: "extracted", key: "storeName" }, { source: "extracted", key: "warehouseName" }] }, { source: "header", header: "skuCode" }],
+          confidence: 0.95,
+          reason: "店名 + 物品编码生成外部编码",
+        },
         storeName: { source: "extracted", key: "storeName", confidence: 0.95, reason: "PDF 头部收货机构" },
         receiverName: { source: "extracted", key: "receiverName", confidence: 0.95, reason: "PDF 尾部收货人" },
         receiverPhone: { source: "extracted", key: "receiverPhone", confidence: 0.95, reason: "PDF 尾部收货电话" },

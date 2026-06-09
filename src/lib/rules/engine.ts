@@ -93,7 +93,16 @@ function findHeaderIndex(headers: string[] | undefined, expected?: string) {
 function resolveSelector(selector: CellSelector | undefined, context: Context) {
   if (!selector) return "";
   let value = "";
-  if (selector.source === "static") {
+  if (selector.source === "template") {
+    value = (selector.parts ?? [])
+      .map((part) => resolveSelector(part, context))
+      .filter(Boolean)
+      .join(selector.joinWith ?? "");
+  } else if (selector.source === "fallback") {
+    value = (selector.parts ?? [])
+      .map((part) => resolveSelector(part, context))
+      .find(Boolean) ?? "";
+  } else if (selector.source === "static") {
     value = selector.value ?? "";
   } else if (selector.source === "sheetName") {
     value = context.sheetName ?? "";
@@ -211,6 +220,9 @@ function parseMatrix(file: ParsedFile, rule: ParseRule, parser: MatrixParserRule
     );
     if (!rowExtracted.skuCode && rowExtracted.skuBarcode) {
       rowExtracted.skuCode = rowExtracted.skuBarcode;
+    }
+    if (!rowExtracted.warehouseName) {
+      rowExtracted.warehouseName = rowExtracted.storeName || rowExtracted.ownerName || sheet.name;
     }
     const rowKey = resolveSelector(parser.rowKey, { row, headers, sheetName: sheet.name, extracted: rowExtracted });
     for (let colIndex = parser.colKey.startCol; colIndex < endCol; colIndex += 1) {
