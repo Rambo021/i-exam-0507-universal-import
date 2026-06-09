@@ -207,6 +207,9 @@ function parseMatrix(file: ParsedFile, rule: ParseRule, parser: MatrixParserRule
     const rowExtracted = Object.fromEntries(
       Object.entries(parser.rowExtractors ?? {}).map(([key, selector]) => [key, resolveSelector(selector, { row, headers, sheetName: sheet.name })]),
     );
+    if (!rowExtracted.skuCode && rowExtracted.skuBarcode) {
+      rowExtracted.skuCode = rowExtracted.skuBarcode;
+    }
     const rowKey = resolveSelector(parser.rowKey, { row, headers, sheetName: sheet.name, extracted: rowExtracted });
     for (let colIndex = parser.colKey.startCol; colIndex < endCol; colIndex += 1) {
       const cell = row[colIndex]?.trim() ?? "";

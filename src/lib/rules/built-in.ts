@@ -44,7 +44,7 @@ export const builtInRules: ParseRule[] = [
   {
     id: "builtin-store-sku-matrix-xlsx-v1",
     name: "内置模板：门店 SKU 矩阵 Excel",
-    description: "适配库存/下单矩阵：SKU 为行、门店为列，非空门店列转为 SKU 明细。",
+    description: "适配库存/下单矩阵：SKU 为行、门店为列；外部商品编码映射为 SKU物品编码，若为空则回退 SKU条码。",
     fileTypes: ["xlsx", "xls"],
     version: 1,
     parser: {
@@ -55,6 +55,7 @@ export const builtInRules: ParseRule[] = [
       rowKey: { source: "extracted", key: "skuCode", confidence: 0.9, reason: "SKU 行编码" },
       rowExtractors: {
         skuCode: { source: "header", header: "外部商品编码", confidence: 0.95, reason: "SKU 行字段" },
+        skuBarcode: { source: "header", header: "SKU条码", confidence: 0.85, reason: "外部商品编码为空时作为 SKU 编码兜底" },
         skuName: { source: "header", header: "SKU名称", confidence: 0.95, reason: "SKU 行字段" },
         spec: { source: "header", header: "规格", confidence: 0.8, reason: "SKU 行字段" },
       },
